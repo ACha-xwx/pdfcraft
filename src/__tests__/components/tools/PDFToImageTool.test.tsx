@@ -103,4 +103,34 @@ describe('PDFToImageTool batch processing', () => {
     });
     expect(screen.getByRole('button', { name: /download all as zip/i })).toBeInTheDocument();
   });
+
+  it('keeps the default batch limit at 10 files', async () => {
+    render(<PDFToImageTool outputFormat="jpg" />);
+
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    Object.defineProperty(input, 'files', {
+      value: Array.from({ length: 11 }, (_, index) => createPdfFile(`file-${index + 1}.pdf`)),
+      configurable: true,
+    });
+    fireEvent.change(input);
+
+    await waitFor(() => {
+      expect(screen.getByText('Files to Convert (10)')).toBeInTheDocument();
+    });
+  });
+
+  it('allows a custom batch limit for PDF-to-PNG', async () => {
+    render(<PDFToImageTool outputFormat="png" maxBatchFiles={20} />);
+
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    Object.defineProperty(input, 'files', {
+      value: Array.from({ length: 11 }, (_, index) => createPdfFile(`file-${index + 1}.pdf`)),
+      configurable: true,
+    });
+    fireEvent.change(input);
+
+    await waitFor(() => {
+      expect(screen.getByText('Files to Convert (11)')).toBeInTheDocument();
+    });
+  });
 });

@@ -122,4 +122,19 @@ describe('OCRPDFTool batch processing', () => {
     });
     expect(screen.getByRole('button', { name: /download as zip/i })).toBeInTheDocument();
   });
+
+  it('accepts up to 20 PDFs in one batch', async () => {
+    render(<OCRPDFTool />);
+
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    Object.defineProperty(input, 'files', {
+      value: Array.from({ length: 21 }, (_, index) => createPdfFile(`file-${index + 1}.pdf`)),
+      configurable: true,
+    });
+    fireEvent.change(input);
+
+    await waitFor(() => {
+      expect(screen.getByText('Files to OCR (20)')).toBeInTheDocument();
+    });
+  });
 });

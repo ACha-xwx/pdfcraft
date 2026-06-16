@@ -8,7 +8,6 @@ import { DownloadButton } from '../DownloadButton';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { ocrPDF, type OCROptions, type OCRLanguage, OCR_LANGUAGE_NAMES } from '@/lib/pdf/processors/ocr';
-import { Select } from '@/components/ui/FormField';
 import type { ProcessOutput } from '@/types/pdf';
 import { 
   AlertCircle,
@@ -25,7 +24,7 @@ import {
 } from 'lucide-react';
 import JSZip from 'jszip';
 
-const MAX_BATCH_FILES = 10;
+const MAX_BATCH_FILES = 20;
 
 type BatchFileStatus = 'pending' | 'processing' | 'completed' | 'error';
 
@@ -664,20 +663,35 @@ export function OCRPDFTool({ className = '' }: OCRPDFToolProps) {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 gap-4">
                   {/* Format Output */}
                   <div>
                     <label className="block text-[11px] font-bold text-[hsl(var(--color-muted-foreground))] uppercase tracking-wider mb-2">
                       {t('ocr.outputFormat')}
                     </label>
-                    <Select
-                      value={outputFormat}
-                      onChange={(e) => setOutputFormat(e.target.value as OCROptions['outputFormat'])}
-                      disabled={isProcessing}
-                    >
-                      <option value="searchable-pdf">{t('ocr.formatSearchablePdf')}</option>
-                      <option value="text">{t('ocr.formatText')}</option>
-                    </Select>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {([
+                        { value: 'searchable-pdf', label: t('ocr.formatSearchablePdf') },
+                        { value: 'text', label: t('ocr.formatText') },
+                      ] as const).map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => setOutputFormat(option.value)}
+                          disabled={isProcessing}
+                          className={`
+                            min-h-10 px-3 py-2 rounded-xl text-xs font-bold text-left transition-all border
+                            ${outputFormat === option.value
+                              ? 'bg-[hsl(var(--color-primary)/0.12)] text-[hsl(var(--color-primary))] border-[hsl(var(--color-primary))] shadow-sm'
+                              : 'bg-white/60 dark:bg-zinc-900/60 text-[hsl(var(--color-foreground))] border-[hsl(var(--color-border))] hover:border-[hsl(var(--color-primary)/0.45)]'
+                            }
+                            disabled:opacity-50 disabled:cursor-not-allowed
+                          `}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
                   {/* Resolution scale */}
@@ -685,15 +699,30 @@ export function OCRPDFTool({ className = '' }: OCRPDFToolProps) {
                     <label className="block text-[11px] font-bold text-[hsl(var(--color-muted-foreground))] uppercase tracking-wider mb-2">
                       {t('ocr.accuracyTitle')}
                     </label>
-                    <Select
-                      value={scale}
-                      onChange={(e) => setScale(parseFloat(e.target.value))}
-                      disabled={isProcessing}
-                    >
-                      <option value="1">{t('ocr.accuracySd')}</option>
-                      <option value="2">{t('ocr.accuracyHd')}</option>
-                      <option value="3">{t('ocr.accuracyUd')}</option>
-                    </Select>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      {([
+                        { value: 1, label: t('ocr.accuracySd') },
+                        { value: 2, label: t('ocr.accuracyHd') },
+                        { value: 3, label: t('ocr.accuracyUd') },
+                      ] as const).map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => setScale(option.value)}
+                          disabled={isProcessing}
+                          className={`
+                            min-h-10 px-3 py-2 rounded-xl text-xs font-bold text-left transition-all border
+                            ${scale === option.value
+                              ? 'bg-[hsl(var(--color-primary)/0.12)] text-[hsl(var(--color-primary))] border-[hsl(var(--color-primary))] shadow-sm'
+                              : 'bg-white/60 dark:bg-zinc-900/60 text-[hsl(var(--color-foreground))] border-[hsl(var(--color-border))] hover:border-[hsl(var(--color-primary)/0.45)]'
+                            }
+                            disabled:opacity-50 disabled:cursor-not-allowed
+                          `}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
                   {/* Range */}

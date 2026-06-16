@@ -364,7 +364,7 @@ export default async function ToolPageRoute({ params }: ToolPageParams) {
       case 'pdf-to-jpg':
         return <PDFToImageTool outputFormat="jpg" />;
       case 'pdf-to-png':
-        return <PDFToImageTool outputFormat="png" />;
+        return <PDFToImageTool outputFormat="png" maxBatchFiles={20} />;
       case 'pdf-to-webp':
         return <PDFToImageTool outputFormat="webp" />;
       case 'pdf-to-bmp':

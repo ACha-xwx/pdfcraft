@@ -2185,7 +2185,7 @@
     },
     "pdfToImage": {
       "uploadLabel": "Upload PDF Files",
-      "uploadDescription": "Drag and drop PDF files to convert. Up to 10 files are processed one at a time.",
+      "uploadDescription": "Drag and drop PDF files to convert. Up to {maxFiles} files are processed one at a time.",
       "optionsTitle": "Conversion Options",
       "format": "Image Format",
       "quality": "Quality",
@@ -2259,7 +2259,7 @@
     },
     "ocrPdf": {
       "uploadLabel": "Upload PDF Files",
-      "uploadDescription": "Drag and drop scanned PDF files here, or click to browse. Up to 10 files are processed one at a time.",
+      "uploadDescription": "Drag and drop scanned PDF files here, or click to browse. Up to 20 files are processed one at a time.",
       "optionsTitle": "OCR Options",
       "languages": "Languages",
       "languagesHint": "Select one or more languages for better accuracy",

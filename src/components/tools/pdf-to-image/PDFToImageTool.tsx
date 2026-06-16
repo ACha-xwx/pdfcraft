@@ -13,7 +13,7 @@ import { Select } from '@/components/ui/FormField';
 import type { ProcessOutput } from '@/types/pdf';
 import JSZip from 'jszip';
 
-const MAX_BATCH_FILES = 10;
+const DEFAULT_MAX_BATCH_FILES = 10;
 
 type BatchFileStatus = 'pending' | 'processing' | 'completed' | 'error';
 
@@ -96,6 +96,8 @@ export interface PDFToImageToolProps {
   className?: string;
   /** Specific output format (e.g., 'jpg', 'png') */
   outputFormat?: ImageFormat;
+  /** Maximum files allowed in one batch */
+  maxBatchFiles?: number;
 }
 
 /**
@@ -104,7 +106,7 @@ export interface PDFToImageToolProps {
  *
  * Converts PDF pages to images (JPG, PNG, WebP, BMP, TIFF).
  */
-export function PDFToImageTool({ className = '', outputFormat }: PDFToImageToolProps) {
+export function PDFToImageTool({ className = '', outputFormat, maxBatchFiles = DEFAULT_MAX_BATCH_FILES }: PDFToImageToolProps) {
   const t = useTranslations('common');
   const tTools = useTranslations('tools');
 
@@ -136,9 +138,9 @@ export function PDFToImageTool({ className = '', outputFormat }: PDFToImageToolP
   const handleFilesSelected = useCallback((newFiles: File[]) => {
     if (newFiles.length === 0) return;
 
-    const availableSlots = MAX_BATCH_FILES - files.length;
+    const availableSlots = maxBatchFiles - files.length;
     if (availableSlots <= 0) {
-      setError(`Maximum ${MAX_BATCH_FILES} PDF files allowed.`);
+      setError(`Maximum ${maxBatchFiles} PDF files allowed.`);
       return;
     }
 
@@ -156,10 +158,10 @@ export function PDFToImageTool({ className = '', outputFormat }: PDFToImageToolP
     setProgressMessage('');
     setError(
       acceptedFiles.length < newFiles.length
-        ? `Maximum ${MAX_BATCH_FILES} PDF files allowed. Added the first ${acceptedFiles.length}.`
+        ? `Maximum ${maxBatchFiles} PDF files allowed. Added the first ${acceptedFiles.length}.`
         : null
     );
-  }, [files.length]);
+  }, [files.length, maxBatchFiles]);
 
   /**
    * Handle file upload error
@@ -494,12 +496,12 @@ export function PDFToImageTool({ className = '', outputFormat }: PDFToImageToolP
       <FileUploader
         accept={['application/pdf', '.pdf']}
         multiple={true}
-        maxFiles={MAX_BATCH_FILES}
+        maxFiles={maxBatchFiles}
         onFilesSelected={handleFilesSelected}
         onError={handleUploadError}
         disabled={isProcessing}
         label={tTools('pdfToImage.uploadLabel') || 'Upload PDF files'}
-        description={tTools('pdfToImage.uploadDescription') || `Drag and drop PDF files here, or click to browse. You can convert up to ${MAX_BATCH_FILES} files sequentially.`}
+        description={tTools('pdfToImage.uploadDescription', { maxFiles: maxBatchFiles }) || `Drag and drop PDF files here, or click to browse. You can convert up to ${maxBatchFiles} files sequentially.`}
       />
 
       {/* Error Message */}

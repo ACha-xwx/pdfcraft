@@ -64,6 +64,8 @@ function createPdfFile(name: string): File {
 describe('OCRPDFTool batch processing', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1));
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
     HTMLCanvasElement.prototype.getContext = vi.fn(() => ({
       clearRect: vi.fn(),
       beginPath: vi.fn(),

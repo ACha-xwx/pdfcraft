@@ -2185,7 +2185,7 @@
     },
     "pdfToImage": {
       "uploadLabel": "上传PDF文件",
-      "uploadDescription": "拖放PDF文件到此处进行转换。",
+      "uploadDescription": "拖放PDF文件到此处进行转换。最多可选择10个文件，系统会逐个处理。",
       "optionsTitle": "转换选项",
       "format": "图片格式",
       "quality": "质量",
@@ -2259,7 +2259,7 @@
     },
     "ocrPdf": {
       "uploadLabel": "上传PDF文件",
-      "uploadDescription": "拖放扫描的PDF文件到此处，或点击浏览。",
+      "uploadDescription": "拖放扫描的PDF文件到此处，或点击浏览。最多可选择10个文件，系统会逐个处理。",
       "optionsTitle": "OCR选项",
       "languages": "语言",
       "languagesHint": "选择一种或多种语言以提高准确性",

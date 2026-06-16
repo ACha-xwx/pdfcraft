@@ -9,20 +9,89 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { ocrPDF, type OCROptions, type OCRLanguage, OCR_LANGUAGE_NAMES } from '@/lib/pdf/processors/ocr';
 import { Select } from '@/components/ui/FormField';
-import type { UploadedFile, ProcessOutput } from '@/types/pdf';
+import type { ProcessOutput } from '@/types/pdf';
 import { 
+  AlertCircle,
   Scan, 
   Settings2, 
   Trash2, 
   Check, 
+  FileArchive,
+  Loader2,
+  X,
   Sparkles, 
-  HelpCircle,
   ShieldCheck,
   Languages
 } from 'lucide-react';
+import JSZip from 'jszip';
+
+const MAX_BATCH_FILES = 10;
+
+type BatchFileStatus = 'pending' | 'processing' | 'completed' | 'error';
+
+interface OCRBatchFile {
+  id: string;
+  file: File;
+  status: BatchFileStatus;
+  progress: number;
+  result?: Blob;
+  filename?: string;
+  textPreview?: string;
+  error?: string;
+}
 
 function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+}
+
+function getOutputFilename(file: File, outputFormat: OCROptions['outputFormat']): string {
+  const baseName = file.name.replace(/\.pdf$/i, '');
+  return `${baseName}_ocr.${outputFormat === 'text' ? 'txt' : 'pdf'}`;
+}
+
+function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function readBlobText(blob: Blob): Promise<string> {
+  if (typeof blob.text === 'function') {
+    return blob.text();
+  }
+
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+    reader.onerror = () => reject(reader.error || new Error('Failed to read OCR text preview.'));
+    reader.readAsText(blob);
+  });
+}
+
+function getUniqueZipName(filename: string, usedNames: Set<string>): string {
+  if (!usedNames.has(filename)) {
+    usedNames.add(filename);
+    return filename;
+  }
+
+  const extensionIndex = filename.lastIndexOf('.');
+  const name = extensionIndex > -1 ? filename.slice(0, extensionIndex) : filename;
+  const extension = extensionIndex > -1 ? filename.slice(extensionIndex) : '';
+  let counter = 2;
+  let candidate = `${name}_${counter}${extension}`;
+
+  while (usedNames.has(candidate)) {
+    counter += 1;
+    candidate = `${name}_${counter}${extension}`;
+  }
+
+  usedNames.add(candidate);
+  return candidate;
 }
 
 export interface OCRPDFToolProps {
@@ -34,12 +103,10 @@ export function OCRPDFTool({ className = '' }: OCRPDFToolProps) {
   const tTools = useTranslations('tools');
   
   // State
-  const [file, setFile] = useState<UploadedFile | null>(null);
+  const [files, setFiles] = useState<OCRBatchFile[]>([]);
   const [status, setStatus] = useState<ProcessingStatus>('idle');
   const [progress, setProgress] = useState(0);
   const [progressMessage, setProgressMessage] = useState('');
-  const [result, setResult] = useState<Blob | null>(null);
-  const [textPreview, setTextPreview] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   
   // Options state
@@ -159,31 +226,51 @@ export function OCRPDFTool({ className = '' }: OCRPDFToolProps) {
     };
   }, [status]);
 
-  /**
-   * Handle file selection
-   */
   const handleFilesSelected = useCallback((newFiles: File[]) => {
-    if (newFiles.length > 0) {
-      const uploadedFile: UploadedFile = {
-        id: generateId(),
-        file: newFiles[0],
-        status: 'pending' as const,
-      };
-      setFile(uploadedFile);
-      setError(null);
-      setResult(null);
-      setTextPreview(null);
+    if (newFiles.length === 0) return;
+
+    const availableSlots = MAX_BATCH_FILES - files.length;
+    if (availableSlots <= 0) {
+      setError(`Maximum ${MAX_BATCH_FILES} PDF files allowed.`);
+      return;
     }
-  }, []);
+
+    const acceptedFiles = newFiles.slice(0, availableSlots);
+    const batchFiles: OCRBatchFile[] = acceptedFiles.map((file) => ({
+      id: generateId(),
+      file,
+      status: 'pending',
+      progress: 0,
+    }));
+
+    setFiles((prev) => [...prev, ...batchFiles]);
+    setStatus('idle');
+    setProgress(0);
+    setProgressMessage('');
+    setError(
+      acceptedFiles.length < newFiles.length
+        ? `Maximum ${MAX_BATCH_FILES} PDF files allowed. Added the first ${acceptedFiles.length}.`
+        : null
+    );
+  }, [files.length]);
 
   const handleUploadError = useCallback((errorMessage: string) => {
     setError(errorMessage);
   }, []);
 
-  const handleRemoveFile = useCallback(() => {
-    setFile(null);
-    setResult(null);
-    setTextPreview(null);
+  const handleRemoveFile = useCallback((id: string) => {
+    setFiles((prev) => prev.filter((batchFile) => batchFile.id !== id));
+    setError(null);
+
+    if (files.length === 1) {
+      setStatus('idle');
+      setProgress(0);
+      setProgressMessage('');
+    }
+  }, [files.length]);
+
+  const handleClearFiles = useCallback(() => {
+    setFiles([]);
     setError(null);
     setStatus('idle');
     setProgress(0);
@@ -229,18 +316,12 @@ export function OCRPDFTool({ className = '' }: OCRPDFToolProps) {
    * Run OCR Parser
    */
   const handleOCR = useCallback(async () => {
-    if (!file) {
-      setError('Please upload a PDF file.');
+    if (files.length === 0) {
+      setError('Please upload one or more PDF files.');
       return;
     }
 
-    cancelledRef.current = false;
-    setStatus('processing');
-    setProgress(0);
-    setError(null);
-    setResult(null);
-    setTextPreview(null);
-
+    const filesToProcess = files.map(({ id, file }) => ({ id, file }));
     const options: Partial<OCROptions> = {
       languages,
       outputFormat,
@@ -248,50 +329,162 @@ export function OCRPDFTool({ className = '' }: OCRPDFToolProps) {
       pages: parsePageRange(pageRange),
     };
 
-    try {
-      const output: ProcessOutput = await ocrPDF(
-        file.file,
-        options,
-        (prog, message) => {
-          if (!cancelledRef.current) {
-            setProgress(prog);
-            setProgressMessage(message || 'Initializing model workers...');
-          }
-        }
+    cancelledRef.current = false;
+    setStatus('processing');
+    setProgress(0);
+    setProgressMessage('');
+    setError(null);
+    setFiles((prev) =>
+      prev.map((batchFile) => ({
+        id: batchFile.id,
+        file: batchFile.file,
+        status: 'pending',
+        progress: 0,
+      }))
+    );
+
+    let failedCount = 0;
+
+    for (let index = 0; index < filesToProcess.length; index += 1) {
+      const batchFile = filesToProcess[index];
+
+      if (cancelledRef.current) break;
+
+      setFiles((prev) =>
+        prev.map((fileItem) =>
+          fileItem.id === batchFile.id
+            ? { ...fileItem, status: 'processing', progress: 0, error: undefined, result: undefined, filename: undefined, textPreview: undefined }
+            : fileItem
+        )
       );
+      setProgressMessage(`Processing ${index + 1}/${filesToProcess.length}: ${batchFile.file.name}`);
 
-      if (cancelledRef.current) {
-        setStatus('idle');
-        return;
-      }
+      try {
+        const output: ProcessOutput = await ocrPDF(
+          batchFile.file,
+          options,
+          (prog, message) => {
+            if (!cancelledRef.current) {
+              const overallProgress = Math.round(((index + prog / 100) / filesToProcess.length) * 100);
+              setProgress(overallProgress);
+              setProgressMessage(`Processing ${index + 1}/${filesToProcess.length}: ${message || batchFile.file.name}`);
+              setFiles((prev) =>
+                prev.map((fileItem) =>
+                  fileItem.id === batchFile.id
+                    ? { ...fileItem, progress: Math.round(prog) }
+                    : fileItem
+                )
+              );
+            }
+          }
+        );
 
-      if (output.success && output.result) {
-        const blob = output.result as Blob;
-        setResult(blob);
-        
-        if (outputFormat === 'text') {
-          const text = await blob.text();
-          setTextPreview(text.length > 5000 ? text.substring(0, 5000) + '\n...(truncated)' : text);
+        if (cancelledRef.current) break;
+
+        if (output.success && output.result && !Array.isArray(output.result)) {
+          const blob = output.result;
+          let textPreview: string | undefined;
+
+          if (outputFormat === 'text') {
+            const text = await readBlobText(blob);
+            textPreview = text.length > 5000 ? `${text.substring(0, 5000)}\n...(truncated)` : text;
+          }
+
+          setFiles((prev) =>
+            prev.map((fileItem) =>
+              fileItem.id === batchFile.id
+                ? {
+                    ...fileItem,
+                    status: 'completed',
+                    progress: 100,
+                    result: blob,
+                    filename: output.filename || getOutputFilename(batchFile.file, outputFormat),
+                    textPreview,
+                    error: undefined,
+                  }
+                : fileItem
+            )
+          );
+        } else {
+          failedCount += 1;
+          setFiles((prev) =>
+            prev.map((fileItem) =>
+              fileItem.id === batchFile.id
+                ? {
+                    ...fileItem,
+                    status: 'error',
+                    progress: 100,
+                    error: output.error?.message || 'Failed to perform OCR on PDF.',
+                  }
+                : fileItem
+            )
+          );
         }
-        
-        setStatus('complete');
-      } else {
-        setError(output.error?.message || 'Failed to perform OCR on PDF.');
-        setStatus('error');
-      }
-    } catch (err) {
-      if (!cancelledRef.current) {
-        setError(err instanceof Error ? err.message : 'An unexpected error occurred.');
-        setStatus('error');
+      } catch (err) {
+        if (!cancelledRef.current) {
+          failedCount += 1;
+          setFiles((prev) =>
+            prev.map((fileItem) =>
+              fileItem.id === batchFile.id
+                ? {
+                    ...fileItem,
+                    status: 'error',
+                    progress: 100,
+                    error: err instanceof Error ? err.message : 'An unexpected error occurred.',
+                  }
+                : fileItem
+            )
+          );
+        }
       }
     }
-  }, [file, languages, outputFormat, scale, pageRange]);
+
+    if (cancelledRef.current) {
+      setStatus('idle');
+      setProgress(0);
+      setProgressMessage('');
+      return;
+    }
+
+    setProgress(100);
+    setProgressMessage('');
+    setStatus(failedCount > 0 ? 'error' : 'complete');
+    setError(failedCount > 0 ? `${failedCount} file(s) failed to process. See the file list for details.` : null);
+  }, [files, languages, outputFormat, scale, pageRange]);
 
   const handleCancel = useCallback(() => {
     cancelledRef.current = true;
     setStatus('idle');
     setProgress(0);
+    setProgressMessage('');
+    setFiles((prev) =>
+      prev.map((batchFile) =>
+        batchFile.status === 'processing'
+          ? { ...batchFile, status: 'pending', progress: 0 }
+          : batchFile
+      )
+    );
   }, []);
+
+  const handleDownloadZip = useCallback(async () => {
+    const completedFiles = files.filter((batchFile) => batchFile.status === 'completed' && batchFile.result);
+    if (completedFiles.length === 0) return;
+
+    const zip = new JSZip();
+    const usedNames = new Set<string>();
+
+    completedFiles.forEach((batchFile) => {
+      if (!batchFile.result) return;
+      const filename = getUniqueZipName(
+        batchFile.filename || getOutputFilename(batchFile.file, outputFormat),
+        usedNames
+      );
+      zip.file(filename, batchFile.result);
+    });
+
+    const zipBlob = await zip.generateAsync({ type: 'blob' });
+    downloadBlob(zipBlob, 'ocr-results.zip');
+  }, [files, outputFormat]);
 
   const formatSize = (bytes: number): string => {
     if (bytes < 1024) return `${bytes} B`;
@@ -299,8 +492,40 @@ export function OCRPDFTool({ className = '' }: OCRPDFToolProps) {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
+  const getStatusIcon = (fileStatus: BatchFileStatus) => {
+    switch (fileStatus) {
+      case 'pending':
+        return <div className="w-4 h-4 rounded-full bg-gray-300" />;
+      case 'processing':
+        return <Loader2 className="w-4 h-4 animate-spin text-blue-500" />;
+      case 'completed':
+        return <Check className="w-4 h-4 text-green-500" />;
+      case 'error':
+        return <AlertCircle className="w-4 h-4 text-red-500" />;
+    }
+  };
+
+  const getStatusLabel = (fileStatus: BatchFileStatus) => {
+    switch (fileStatus) {
+      case 'pending':
+        return 'Pending';
+      case 'processing':
+        return 'Processing';
+      case 'completed':
+        return 'Complete';
+      case 'error':
+        return 'Error';
+    }
+  };
+
   const isProcessing = status === 'processing' || status === 'uploading';
-  const canProcess = file && !isProcessing;
+  const hasFiles = files.length > 0;
+  const canProcess = hasFiles && !isProcessing;
+  const completedCount = files.filter((batchFile) => batchFile.status === 'completed').length;
+  const errorCount = files.filter((batchFile) => batchFile.status === 'error').length;
+  const hasCompletedFiles = completedCount > 0;
+  const allCompleted = hasFiles && completedCount === files.length;
+  const previewFiles = files.filter((batchFile) => batchFile.textPreview);
 
   const availableLanguages: OCRLanguage[] = ['eng', 'chi_sim', 'chi_tra', 'jpn', 'kor', 'spa', 'fra', 'deu', 'por', 'ara'];
 
@@ -308,18 +533,16 @@ export function OCRPDFTool({ className = '' }: OCRPDFToolProps) {
     <div className={`space-y-6 ${className}`.trim()}>
       
       {/* File Upload Zone */}
-      {!file && (
-        <FileUploader
-          accept={['application/pdf', '.pdf']}
-          multiple={false}
-          maxFiles={1}
-          onFilesSelected={handleFilesSelected}
-          onError={handleUploadError}
-          disabled={isProcessing}
-          label={tTools('ocrPdf.uploadLabel') || 'Upload PDF'}
-          description={tTools('ocrPdf.uploadDescription') || 'Drag and drop a scanned PDF file here, or click to browse.'}
-        />
-      )}
+      <FileUploader
+        accept={['application/pdf', '.pdf']}
+        multiple={true}
+        maxFiles={MAX_BATCH_FILES}
+        onFilesSelected={handleFilesSelected}
+        onError={handleUploadError}
+        disabled={isProcessing}
+        label={tTools('ocrPdf.uploadLabel') || 'Upload PDF files'}
+        description={tTools('ocrPdf.uploadDescription') || `Drag and drop scanned PDF files here, or click to browse. You can process up to ${MAX_BATCH_FILES} files sequentially.`}
+      />
 
       {/* Error Block */}
       {error && (
@@ -328,29 +551,79 @@ export function OCRPDFTool({ className = '' }: OCRPDFToolProps) {
         </div>
       )}
 
-      {/* File metadata bar */}
-      {file && (
-        <Card variant="outlined" className="p-4 flex items-center justify-between border-2 border-[hsl(var(--color-primary)/0.25)] rounded-2xl">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[hsl(var(--color-primary)/0.1)] flex items-center justify-center">
-              <svg className="w-5 h-5 text-[hsl(var(--color-primary))]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                <polyline points="14 2 14 8 20 8" />
-              </svg>
-            </div>
-            <div>
-              <p className="font-semibold text-sm text-[hsl(var(--color-foreground))]">{file.file.name}</p>
-              <p className="text-xs text-[hsl(var(--color-muted-foreground))]">{formatSize(file.file.size)}</p>
-            </div>
+      {/* File queue */}
+      {hasFiles && (
+        <Card variant="outlined" className="p-4 border-2 border-[hsl(var(--color-primary)/0.25)] rounded-2xl">
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <h3 className="text-sm font-bold text-[hsl(var(--color-foreground))]">
+              Files to OCR ({files.length})
+            </h3>
+            <Button variant="ghost" size="sm" onClick={handleClearFiles} disabled={isProcessing}>
+              <Trash2 className="w-4 h-4" />
+              {t('buttons.clearAll') || 'Clear All'}
+            </Button>
           </div>
-          <Button variant="ghost" size="sm" onClick={handleRemoveFile} disabled={isProcessing}>
-            {t('buttons.remove') || 'Remove'}
-          </Button>
+
+          <div className="space-y-2 max-h-72 overflow-y-auto">
+            {files.map((batchFile) => (
+              <div
+                key={batchFile.id}
+                className="flex items-center justify-between gap-3 p-3 rounded-xl bg-[hsl(var(--color-muted)/0.35)]"
+              >
+                <div className="flex items-center gap-3 flex-1 min-w-0">
+                  {getStatusIcon(batchFile.status)}
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-sm text-[hsl(var(--color-foreground))] truncate">
+                      {batchFile.file.name}
+                    </p>
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="text-xs text-[hsl(var(--color-muted-foreground))]">
+                        {formatSize(batchFile.file.size)}
+                      </span>
+                      <span className="text-xs text-[hsl(var(--color-muted-foreground))]">
+                        {getStatusLabel(batchFile.status)}
+                      </span>
+                      {batchFile.status === 'processing' && (
+                        <span className="text-xs text-blue-500">{batchFile.progress}%</span>
+                      )}
+                      {batchFile.status === 'completed' && batchFile.result && (
+                        <span className="text-xs text-green-600">{formatSize(batchFile.result.size)}</span>
+                      )}
+                      {batchFile.status === 'error' && batchFile.error && (
+                        <span className="text-xs text-red-600">{batchFile.error}</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {batchFile.status === 'completed' && batchFile.result && (
+                  <DownloadButton
+                    file={batchFile.result}
+                    filename={batchFile.filename || getOutputFilename(batchFile.file, outputFormat)}
+                    variant="ghost"
+                    size="sm"
+                    showFileSize={false}
+                  />
+                )}
+
+                {!isProcessing && batchFile.status !== 'processing' && (
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveFile(batchFile.id)}
+                    className="p-1 text-[hsl(var(--color-muted-foreground))] hover:text-red-500 transition-colors"
+                    aria-label={`Remove ${batchFile.file.name}`}
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
         </Card>
       )}
 
       {/* Primary Workspace */}
-      {file && status !== 'complete' && (
+      {hasFiles && status !== 'complete' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch">
           
           {/* LEFT: OCR Options */}
@@ -452,6 +725,18 @@ export function OCRPDFTool({ className = '' }: OCRPDFToolProps) {
                   <Scan className="w-5 h-5" />
                   {t('ocr.startOcr')}
                 </Button>
+                {hasCompletedFiles && (
+                  <Button
+                    variant="secondary"
+                    size="lg"
+                    onClick={handleDownloadZip}
+                    disabled={isProcessing}
+                    className="w-full mt-3 font-bold"
+                  >
+                    <FileArchive className="w-4 h-4" />
+                    {t('batchProcessing.downloadZip') || 'Download as ZIP'}
+                  </Button>
+                )}
               </div>
 
             </Card>
@@ -505,7 +790,7 @@ export function OCRPDFTool({ className = '' }: OCRPDFToolProps) {
       )}
 
       {/* Complete Outcomes screen */}
-      {status === 'complete' && result && (
+      {allCompleted && (
         <Card variant="default" className="p-8 rounded-[2.5rem] bg-white/40 dark:bg-black/30 backdrop-blur-md border border-white/20 dark:border-zinc-800/40 text-center space-y-6 shadow-2xl">
           <div className="w-16 h-16 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center mx-auto">
             <ShieldCheck className="w-10 h-10" />
@@ -522,27 +807,51 @@ export function OCRPDFTool({ className = '' }: OCRPDFToolProps) {
           </div>
 
           <div className="flex gap-3 justify-center max-w-xs mx-auto">
-            <DownloadButton
-              file={result}
-              filename={`${file?.file.name.replace(/\.pdf$/i, '')}_ocr.${outputFormat === 'text' ? 'txt' : 'pdf'}`}
+            <Button
               variant="primary"
               size="lg"
+              onClick={handleDownloadZip}
               className="flex-1 font-bold shadow-lg"
-              showFileSize
-            />
+              disabled={isProcessing}
+            >
+              <FileArchive className="w-4 h-4" />
+              {t('batchProcessing.downloadZip') || 'Download as ZIP'}
+            </Button>
           </div>
         </Card>
       )}
 
+      {errorCount > 0 && !isProcessing && (
+        <div
+          className="p-4 rounded-[var(--radius-md)] bg-yellow-50 border border-yellow-200 text-yellow-800"
+          role="status"
+        >
+          <p className="text-sm font-medium">
+            {completedCount} file(s) completed, {errorCount} file(s) failed.
+          </p>
+        </div>
+      )}
+
       {/* Pure text preview box */}
-      {textPreview && (
+      {previewFiles.length > 0 && (
         <Card variant="outlined" size="lg" className="rounded-3xl shadow-sm">
           <h3 className="text-sm font-bold text-[hsl(var(--color-foreground))] mb-4">
             {t('ocr.previewTitle')}
           </h3>
-          <pre className="p-4 bg-[hsl(var(--color-muted)/0.35)] border border-[hsl(var(--color-border))] rounded-2xl overflow-auto max-h-64 text-xs font-mono text-[hsl(var(--color-foreground))] whitespace-pre-wrap leading-normal">
-            {textPreview}
-          </pre>
+          <div className="space-y-4">
+            {previewFiles.map((batchFile) => (
+              <div key={batchFile.id}>
+                {previewFiles.length > 1 && (
+                  <p className="text-sm font-semibold text-[hsl(var(--color-foreground))] mb-2">
+                    {batchFile.file.name}
+                  </p>
+                )}
+                <pre className="p-4 bg-[hsl(var(--color-muted)/0.35)] border border-[hsl(var(--color-border))] rounded-2xl overflow-auto max-h-64 text-xs font-mono text-[hsl(var(--color-foreground))] whitespace-pre-wrap leading-normal">
+                  {batchFile.textPreview}
+                </pre>
+              </div>
+            ))}
+          </div>
         </Card>
       )}
 

@@ -714,8 +714,8 @@ export const tools: Tool[] = [
     acceptedFormats: ['.pdf'],
     outputFormat: 'pdf',
     maxFileSize: DEFAULT_MAX_FILE_SIZE,
-    maxFiles: 1,
-    features: ['text-recognition', 'searchable-pdf', 'multiple-languages'],
+    maxFiles: 10,
+    features: ['text-recognition', 'searchable-pdf', 'multiple-languages', 'batch-processing'],
     relatedTools: ['edit-pdf', 'pdf-to-json', 'compress-pdf'],
   },
   {

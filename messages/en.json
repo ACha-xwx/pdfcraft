@@ -2184,8 +2184,8 @@
       "successMessage": "JSON converted to PDF successfully!"
     },
     "pdfToImage": {
-      "uploadLabel": "Upload PDF File",
-      "uploadDescription": "Drag and drop a PDF file to convert.",
+      "uploadLabel": "Upload PDF Files",
+      "uploadDescription": "Drag and drop PDF files to convert. Up to 10 files are processed one at a time.",
       "optionsTitle": "Conversion Options",
       "format": "Image Format",
       "quality": "Quality",
@@ -2258,8 +2258,8 @@
       "successMessage": "PDF extracted to JSON successfully! Click the download button to save your file."
     },
     "ocrPdf": {
-      "uploadLabel": "Upload PDF File",
-      "uploadDescription": "Drag and drop a scanned PDF file here, or click to browse.",
+      "uploadLabel": "Upload PDF Files",
+      "uploadDescription": "Drag and drop scanned PDF files here, or click to browse. Up to 10 files are processed one at a time.",
       "optionsTitle": "OCR Options",
       "languages": "Languages",
       "languagesHint": "Select one or more languages for better accuracy",
